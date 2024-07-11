@@ -17,7 +17,7 @@ go mod init github.com/<username>/<project-name>
 │   │   └── services
 │   │       ├── services.go                 // run all services
 │   │       ├── config.service.go           // init config
-│   │       └── message-broker.service.go   // init broker
+│   │       └── goroutine.service.go        // init goroutines
 │   ├── config
 │   │   └── config.go                       // all config models
 │   ├── Dockerfile                          // dockerfile
