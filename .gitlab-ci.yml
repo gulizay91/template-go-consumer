@@ -1,0 +1,155 @@
+stages:          # List of stages for jobs, and their order of execution
+  - build
+  - deploy
+
+default:
+  image: docker:latest
+  services:
+    - docker:dind
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_DRIVER: overlay2
+  DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID
+  K8S_NAMESPACE_DEV: k8s-ns-dev
+  K8S_NAMESPACE_PROD: k8s-ns-prod
+  # Define the following variables via service
+  SERVICE_APP_PATH: app
+  SERVICE_NAME: template-go-consumer
+  SERVICE_PORT: 7011
+  DOCKER_CONTAINER_SERVICE_PORT: 7011
+  # Define the following variables in your GitLab project's CI/CD settings
+#  SERVER_HOST: $SERVER_HOST # This is the IP address of the server where you want to deploy your application.
+#  SERVER_SSH_USER: $SERVER_SSH_USER # This is the username of the server where you want to deploy your application.
+#  SERVER_SSH_PRIVATE_KEY: $SERVER_SSH_PRIVATE_KEY # This is the private key of the server where you want to deploy your application.
+#  $CI_DEPLOY_USER: $CI_DEPLOY_USER # This is the Docker registry username in access token
+#  $CI_DEPLOY_PASSWORD: $CI_DEPLOY_PASSWORD # This is the Docker registry password in access token
+#  $DO_API_TOKEN: $DO_API_TOKEN # This is the DigitalOcean API token.
+
+build-docker-job-dev:
+  stage: build
+  image: docker:latest
+  environment: development
+  services:
+    - docker:dind
+  allow_failure: false
+  variables:
+    DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID
+  before_script:
+    - echo "Logging in to $CI_REGISTRY..."
+    - echo "ci-commit-branch $CI_COMMIT_BRANCH ci-commit-ref $CI_COMMIT_REF_NAME ci-registry-image $CI_REGISTRY_IMAGE"
+    - echo "docker-path $DOCKER_PATH service-app-path $SERVICE_APP_PATH service-name $CI_PROJECT_NAME"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - echo "Docker build starting. buildNumber $CI_PIPELINE_ID and image-tag $DOCKER_IMAGE_TAG "
+    - docker build --rm --build-arg SERVICE_PORT=$DOCKER_CONTAINER_SERVICE_PORT -t $DOCKER_IMAGE_TAG $SERVICE_APP_PATH
+    - docker push $DOCKER_IMAGE_TAG
+    - echo "Docker build complete."
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+      when: always
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: never
+    - when: manual
+
+deploy-docker-job-dev:
+  stage: deploy  # It only runs when *both* jobs in the test stage complete successfully.
+  environment: development
+  variables:
+    SERVICE_ENVIRONMENT: dev
+    DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID
+  before_script:
+    - echo "server key $SERVER_SSH_PRIVATE_KEY server host $SERVER_HOST server user $SERVER_SSH_USER"
+    # Set right chmod on SSH key file
+    - chmod 400 $SERVER_SSH_PRIVATE_KEY
+  script:
+    - echo "Deploying application to docker to server ..."
+    # Login to Gitlab Container registry
+    - ssh -o StrictHostKeyChecking=no -i $SERVER_SSH_PRIVATE_KEY "${SERVER_SSH_USER}@${SERVER_HOST}" "docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}"
+    # Remove old containers and images if exists
+    - ssh -o StrictHostKeyChecking=no -i $SERVER_SSH_PRIVATE_KEY "${SERVER_SSH_USER}@${SERVER_HOST}"
+      docker rm -f ${CI_PROJECT_NAME} || true
+    - ssh -o StrictHostKeyChecking=no -i $SERVER_SSH_PRIVATE_KEY "${SERVER_SSH_USER}@${SERVER_HOST}" "docker rmi -f \$(docker images -q $CI_REGISTRY_IMAGE) || true"
+    # Download and run new image
+    - ssh -o StrictHostKeyChecking=no -i $SERVER_SSH_PRIVATE_KEY "${SERVER_SSH_USER}@${SERVER_HOST}"
+      docker run
+      --name $CI_PROJECT_NAME
+      -p $SERVICE_PORT:$DOCKER_CONTAINER_SERVICE_PORT
+      -e SERVICE__ENVIRONMENT=$SERVICE_ENVIRONMENT
+      -e SERVICE__PORT=$DOCKER_CONTAINER_SERVICE_PORT
+      -d $DOCKER_IMAGE_TAG
+    - echo "Application successfully deployed to server."
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+      when: always
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: never
+    - when: manual
+
+build-docker-job-prod:
+  stage: build
+  only:
+    refs:
+      - main
+      - master
+  when: manual
+  image: docker:latest
+  environment: production
+  services:
+    - docker:dind
+  allow_failure: false
+  variables:
+    DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE:latest
+  before_script:
+    - echo "Logging in to $CI_REGISTRY..."
+    - echo "ci-commit-branch $CI_COMMIT_BRANCH ci-commit-ref $CI_COMMIT_REF_NAME ci-registry-image $CI_REGISTRY_IMAGE"
+    - echo "docker-path $DOCKER_PATH service-app-path $SERVICE_APP_PATH service-name $CI_PROJECT_NAME company-name $COMPANY_NAME"
+#    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker login $CI_REGISTRY -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD
+  script:
+    - echo "Docker build starting. buildNumber $CI_PIPELINE_ID and image-tag $DOCKER_IMAGE_TAG "
+    - docker build --rm --build-arg SERVICE_PORT=$DOCKER_CONTAINER_SERVICE_PORT -t $DOCKER_IMAGE_TAG $SERVICE_APP_PATH
+    - docker push $DOCKER_IMAGE_TAG
+    - echo "Docker build complete."
+
+deploy-dok-job-prod:
+    stage: deploy
+    image: alpine:latest
+    only:
+      refs:
+        - main
+        - master
+    when: manual
+    environment: production
+    variables:
+      K8S_NAMESPACE: $K8S_NAMESPACE_PROD
+      K8S_CLUSTER_NAME: k8s-default-cluster
+      K8S_DOCKER_REGISTRY_SECRET_NAME: gitlab-registry-secret-$SERVICE_NAME
+      SERVICE_ENVIRONMENT: prod
+      DOCKER_IMAGE_TAG: $CI_REGISTRY_IMAGE:latest
+      MANIFEST_PATH: k8s-manifests
+      SERVICE_PORT: 80 # service cluster port
+      SERVICE_LOGLEVEL: info # error
+    before_script:
+      - apk add --no-cache curl gettext
+      - curl -LO "https://github.com/digitalocean/doctl/releases/download/v1.73.0/doctl-1.73.0-linux-amd64.tar.gz"
+      - tar -xzvf doctl-1.73.0-linux-amd64.tar.gz
+      - mv doctl /usr/local/bin/
+      - curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x ./kubectl
+      - mv kubectl /usr/local/bin/
+      - mkdir -p ~/.kube
+      # DO_API_TOKEN to authenticate with DigitalOcean
+      - doctl auth init -t $DO_API_TOKEN
+      # DigitalOcean Kubernetes Cluster Info
+      - doctl kubernetes cluster kubeconfig save $K8S_CLUSTER_NAME
+      # Docker registry secret
+      - kubectl delete secret -n $K8S_NAMESPACE $K8S_DOCKER_REGISTRY_SECRET_NAME --ignore-not-found || true
+      - kubectl create secret docker-registry $K8S_DOCKER_REGISTRY_SECRET_NAME --docker-server=$CI_REGISTRY --docker-username=$CI_DEPLOY_USER --docker-password=$CI_DEPLOY_PASSWORD --namespace=$K8S_NAMESPACE || true
+    script:
+      - echo "Deploying application to kubernetes server ..."
+      - envsubst < $MANIFEST_PATH/config.yaml | kubectl apply -n $K8S_NAMESPACE -f -
+      - envsubst < $MANIFEST_PATH/hpa.yaml | kubectl apply -n $K8S_NAMESPACE -f -
+      - envsubst < $MANIFEST_PATH/deployment.yaml | kubectl apply -n $K8S_NAMESPACE -f -
+      - envsubst < $MANIFEST_PATH/service.yaml | kubectl apply -n $K8S_NAMESPACE -f -
+      - echo "Application successfully deployed to kubernetes."

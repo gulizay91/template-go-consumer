@@ -53,3 +53,14 @@ make run_docker
 make stop_docker
 make docker_latest_image
 ```
+
+## K8S - Deployment : DigitalOcean Kubernetes Cluster
+
+Make sure Add DO_API_TOKEN variable to GitLab CI/CD Settings Variables, and CI_DEPLOY_USER and CI_DEPLOY_PASSWORD for the docker registry in access token
+![Screenshot](etc/gitlab-variables.png?raw=true)
+
+Run GitLab Pipeline, Deploy to DigitalOcean Kubernetes cluster
+![Gif](etc/gitlab-pipeline-deploy-dok.gif)
+
+Check Kubernetes Deployment
+![Gif](etc/check-kubernetes-deployment.gif)

@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${SERVICE_NAME}
+  namespace: ${K8S_NAMESPACE}
+  labels:
+      type: service
+spec:
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${SERVICE_NAME}
+  strategy:
+    rollingUpdate:
+      maxSurge: 20%
+      maxUnavailable: 10%
+  template:
+    metadata:
+      labels:
+        app: ${SERVICE_NAME}
+    spec:
+      containers:
+        - image: ${DOCKER_IMAGE_TAG}
+          imagePullPolicy: Always
+          name: ${SERVICE_NAME}
+          envFrom:
+            - configMapRef:
+                name: ${SERVICE_NAME}-configs
+          ports:
+            - containerPort: ${DOCKER_CONTAINER_SERVICE_PORT}
+          resources:
+            requests:
+              cpu: 128m
+              memory: 300Mi
+            limits:
+              cpu: 256m
+              memory: 500Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${DOCKER_CONTAINER_SERVICE_PORT}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: ${DOCKER_CONTAINER_SERVICE_PORT}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      imagePullSecrets:
+        - name: ${K8S_DOCKER_REGISTRY_SECRET_NAME}
