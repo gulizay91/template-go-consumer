@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="dev-main.go" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="template-go-consumer" />
+    <working_directory value="$PROJECT_DIR$/app/cmd" />
+    <envs>
+      <env name="SERVICE__ENVIRONMENT" value="dev" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="github.com/gulizay91/template-go-consumer/cmd" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/app/cmd/main.go" />
+    <method v="2" />
+  </configuration>
+</component>

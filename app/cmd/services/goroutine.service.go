@@ -1,7 +1,8 @@
 package services
 
 import (
-	"github.com/gulizay91/template-go-consumer/pkg/handlers"
+	"github.com/gulizay91/template-go-consumer/internal/handlers"
+	"github.com/gulizay91/template-go-consumer/internal/models"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -12,6 +13,12 @@ func RegisterGoRoutines() {
 
 	// Start the handler as a goroutine
 	go heartbeatHandler.Heartbeat(config.Service.Name + " heartbeat")
+
+	// Register consumer with Handler
+	messageHandler := RegisterConsumer(string(models.TemplateMessageQueue), handlers.NewMessageHandler)
+	if messageHandler != nil {
+		go messageHandler.ConsumeMessages()
+	}
 
 	log.Println("Consumer started. Press Ctrl+C to exit.")
 

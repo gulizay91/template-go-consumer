@@ -23,12 +23,13 @@ go mod init github.com/<username>/<project-name>
 │   ├── env.example.yaml                    // environment variables
 │   ├── go.mod
 │   ├── go.sum
-│   ├── pkg
+│   ├── internal
 │   │   ├── handlers                        // all handlers
 │   │   ├── models                          // all dtos
 │   │   ├── repository                      // all repositories
 │   │   │   └── entities                    // all db entities
-│       └── service                         // all services
+│   │   └── service                         // all services
+│   ├── pkg                                 // public, reusable packages
 ├── .gitlab-ci.yml                          // devops ci/cd
 ├── k8s-manifests
 │   ├── .env                                // define base environment variables

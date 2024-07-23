@@ -53,7 +53,7 @@ func InitConfig() {
 	log.SetFormatter(&log.JSONFormatter{})
 	logLevel := getLogLevel(config.Service.LogLevel)
 	log.SetLevel(logLevel)
-	log.Info("service logLevel: ", logLevel)
+	stdLog.Printf("service logLevel: %s", logLevel)
 
 	stdLog.Printf("Configuration Initialized for %s", config.Service.Name)
 }
