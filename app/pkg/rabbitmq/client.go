@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
@@ -35,6 +36,12 @@ const HeaderRetryCountKey = "x-retry-count"
 var (
 	ErrConnectionClosed = errors.New("connection closed")
 )
+
+// ValidateJSON checks if the given string is a valid JSON
+func validateJSON(input string) error {
+	var js map[string]interface{}
+	return json.Unmarshal([]byte(input), &js)
+}
 
 // ConnectRabbitMQ connects to a RabbitMQ server
 func ConnectRabbitMQ(hosts []string, username string, password string) (*amqp.Connection, error) {
@@ -284,4 +291,59 @@ func RetryMessage(ch *amqp.Channel, d amqp.Delivery, retryCount int32) error {
 		log.Errorf("Failed to retry message: %v", err)
 	}
 	return err
+}
+
+// RetryOrSendToDLQ retries the message if needed or sends it to the Dead Letter Queue (DLQ)
+func RetryOrSendToDLQ(ch *amqp.Channel, d amqp.Delivery, queueName string, retryMaxCount int, retryDelaySeconds int) {
+	// Retrieve retry count from message headers
+	retryCountHeader, ok := d.Headers[HeaderRetryCountKey]
+	if !ok {
+		retryCountHeader = int32(0) // Default to 0 if not present
+	}
+
+	// Convert retryCountHeader to integer
+	retryCount, ok := retryCountHeader.(int32)
+	if !ok {
+		log.Errorf("Retry count header is not of type int32")
+		retryCount = 0 // Fallback to 0 if conversion fails
+	}
+
+	if retryCount < int32(retryMaxCount) {
+		// Wait before retrying
+		time.Sleep(time.Second * time.Duration(retryDelaySeconds))
+		if err := RetryMessage(ch, d, retryCount+1); err != nil {
+			log.Errorf("Failed to retry message: %v", err)
+		}
+		// Acknowledge the original message to remove it from the queue
+		if err := d.Ack(false); err != nil {
+			log.Errorf("Failed to ack message after retry: %v", err)
+		}
+	} else {
+		// If retries exhausted, send to DLQ
+		SendMessageToDLQ(ch, queueName, d)
+	}
+}
+
+func PublishEvent(ch *amqp.Channel, messageJSON []byte, exchangeName string, routingKey string) error {
+
+	// Validate JSON format
+	if err := validateJSON(string(messageJSON)); err != nil {
+		return err
+	}
+
+	err := ch.Publish(
+		exchangeName, // exchange
+		routingKey,   // routing key
+		false,        // mandatory
+		false,        // immediate
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        messageJSON,
+		})
+	if err != nil {
+		log.Errorf("Failed to publish a message: %s", err)
+		return err
+	}
+
+	return nil
 }
