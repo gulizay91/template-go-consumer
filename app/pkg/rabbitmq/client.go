@@ -277,7 +277,7 @@ func RetryMessage(ch *amqp.Channel, d amqp.Delivery, retryCount int32) error {
 
 	// Publish the message with updated headers
 	err := ch.Publish(
-		"",           // exchange
+		d.Exchange,   // exchange
 		d.RoutingKey, // routing key
 		false,        // mandatory
 		false,        // immediate
